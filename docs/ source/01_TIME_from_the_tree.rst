@@ -121,6 +121,7 @@ So, we need to add the branches one by one and then divide by the common ancesto
   print("\nÁrbol guardado como:")
   print(rooted_file)
 
+The tree should look like this:
 
 .. image:: _static/Rerooted_tree.png
    :alt: Descripción de la imagen
