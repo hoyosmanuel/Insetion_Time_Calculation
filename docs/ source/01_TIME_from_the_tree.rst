@@ -122,3 +122,9 @@ So, we need to add the branches one by one and then divide by the common ancesto
   print(rooted_file)
 
 
+.. image:: _static/Rerooted tree.png
+   :alt: Descripción de la imagen
+   :width: 6000px
+   :align: center
+
+
