@@ -115,3 +115,156 @@ wich is the time calculated in Morales et al., 2026 for that split:
     HLuroBil1                           0.30872
    HLvamThy1A                           0.30954
     HLvesMur1                           0.29544
+
+
+.. code-block:: python
+
+  from pathlib import Path
+  import pandas as pd
+  
+  
+  # ============================================================
+  # 1. FILES
+  # ============================================================
+  
+  desktop = Path.home() / "Desktop"
+  
+  input_file = desktop / "bat_branch_length_from_Yinptero_Yango_split.tsv"
+  
+  output_file = desktop / "bat_substitution_rates_from_Yinptero_Yango_split.tsv"
+  
+  
+  # ============================================================
+  # 2. DIVERGENCE TIME
+  #
+  # Yinpterochiroptera / Yangochiroptera split:
+  # 66,809,683 years
+  # ============================================================
+  
+  split_time_years = 66_809_683
+  
+  
+  # ============================================================
+  # 3. READ TABLE
+  # ============================================================
+  
+  df = pd.read_csv(
+      input_file,
+      sep="\t"
+  )
+  
+  print("Input file:")
+  print(input_file)
+  
+  print("\nNumber of species:")
+  print(len(df))
+  
+  print("\nColumns:")
+  print(df.columns.tolist())
+  
+  
+  # ============================================================
+  # 4. VERIFY REQUIRED COLUMN
+  # ============================================================
+  
+  distance_column = "distance_to_Yinptero_Yango_split"
+  
+  if distance_column not in df.columns:
+      raise ValueError(
+          f"Column '{distance_column}' was not found in the input table."
+      )
+  
+  
+  # ============================================================
+  # 5. CALCULATE AVERAGE SUBSTITUTION RATE
+  #
+  # branch length = substitutions/site
+  # time          = years
+  #
+  # rate = substitutions/site/year
+  # ============================================================
+  
+  df["split_time_years"] = split_time_years
+  
+  df["substitution_rate_per_site_per_year"] = (
+      df[distance_column] / split_time_years
+  )
+  
+  
+  # ============================================================
+  # 6. OPTIONAL:
+  #    ALSO EXPRESS RATE AS x10^-9 substitutions/site/year
+  #
+  # This is easier to read.
+  #
+  # Example:
+  # 3.60 means 3.60 × 10^-9 substitutions/site/year
+  # ============================================================
+  
+  df["substitution_rate_x1e9"] = (
+      df["substitution_rate_per_site_per_year"] * 1e9
+  )
+  
+  
+  # ============================================================
+  # 7. DISPLAY RESULTS
+  # ============================================================
+  
+  pd.set_option("display.max_rows", None)
+  pd.set_option("display.precision", 12)
+  
+  print("\n============================================================")
+  print("LINEAGE-SPECIFIC SUBSTITUTION RATES")
+  print("============================================================\n")
+  
+  print(
+      df[
+          [
+              "species",
+              distance_column,
+              "split_time_years",
+              "substitution_rate_per_site_per_year",
+              "substitution_rate_x1e9",
+          ]
+      ].to_string(index=False)
+  )
+  
+  
+  # ============================================================
+  # 8. VALIDATE MYOTIS DAUBENTONII
+  # ============================================================
+  
+  target = df[df["species"] == "HLmyoDau2"]
+  
+  print("\n============================================================")
+  print("VALIDATION: Myotis daubentonii")
+  print("============================================================\n")
+  
+  print(
+      target[
+          [
+              "species",
+              distance_column,
+              "substitution_rate_per_site_per_year",
+              "substitution_rate_x1e9",
+          ]
+      ].to_string(index=False)
+  )
+  
+  
+  # ============================================================
+  # 9. SAVE RESULTS
+  # ============================================================
+  
+  df.to_csv(
+      output_file,
+      sep="\t",
+      index=False,
+      float_format="%.12g"
+  )
+  
+  print("\n============================================================")
+  print("OUTPUT SAVED")
+  print("============================================================")
+  
+  print(output_file)
