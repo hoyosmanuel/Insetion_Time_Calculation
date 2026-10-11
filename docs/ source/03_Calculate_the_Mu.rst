@@ -547,7 +547,7 @@ of that split according to Morales et al. (2026).
 
 
 .. csv-table:: Neutral substitution rates estimated for each bat species
-   :file: _static/bat_neutral_substitution_rates_with_species_names.tsv
+   :file: _static/bat_neutral_substitution_rates_with_species_names.csv
    :delim: tab
    :header-rows: 1
    :widths: auto
