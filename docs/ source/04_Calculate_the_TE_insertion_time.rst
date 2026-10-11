@@ -416,8 +416,8 @@
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   
 .. code-block:: bash
-  
-  cat > add_insertion_ages.py <<'PY'
+
+  cat > add_insertion_ages_bed.py <<'PY'
   from pathlib import Path
   import csv
   import sys
@@ -436,11 +436,13 @@
       / "bat_neutral_substitution_rates_with_species_names.tsv"
   )
   
+  # False = do not overwrite an existing .age.bed
+  # True  = overwrite existing .age.bed files
   OVERWRITE = False
   
   
   # ============================================================
-  # EXPECTED CLEAN TSV HEADER
+  # EXPECTED INPUT HEADER
   # ============================================================
   
   EXPECTED_HEADER = [
@@ -466,8 +468,7 @@
   # ============================================================
   # ASSEMBLY -> TREE CODE
   #
-  # None = species identified, but no species-specific mu
-  #        available in the current rate table.
+  # None = species identified, but no species-specific rate
   # ============================================================
   
   assembly_to_tree_code = {
@@ -537,7 +538,7 @@
       "mMyoPil1.2.pri":    "HLmyoPil1",
       "mMyoThy1.2.pri":    "HLmyoThy2",
   
-      # Myotis tricolor — excluded: no species-specific mu
+      # Myotis tricolor: excluded because no species-specific rate
       "mMyoTri1.1.hap1":   None,
   
       "mMyoVel1.1.pri":    "HLmyoVel1",
@@ -592,11 +593,11 @@
   
   
   # ============================================================
-  # LOAD RATE TABLE
+  # LOAD SPECIES-SPECIFIC RATES
   # ============================================================
   
   if not RATES_FILE.exists():
-      print("ERROR: rate table not found:")
+      print("ERROR: rate file not found:")
       print(RATES_FILE)
       sys.exit(1)
   
@@ -611,7 +612,10 @@
       newline=""
   ) as fin:
   
-      reader = csv.DictReader(fin, delimiter="\t")
+      reader = csv.DictReader(
+          fin,
+          delimiter="\t"
+      )
   
       required_columns = {
           "species",
@@ -619,33 +623,40 @@
           "substitution_rate_x1e9",
       }
   
-      if not required_columns.issubset(reader.fieldnames or []):
-          print("ERROR: rate table is missing required columns.")
+      if not required_columns.issubset(
+          reader.fieldnames or []
+      ):
+          print("ERROR: rate table has unexpected columns.")
           print("Found:", reader.fieldnames)
           sys.exit(1)
   
       for row in reader:
   
-          code = row["species"]
+          tree_code = row["species"]
           scientific_name = row["scientific_name"]
-          rate = float(row["substitution_rate_x1e9"])
+          rate_x1e9 = float(
+              row["substitution_rate_x1e9"]
+          )
   
-          if code in rate_by_code:
+          if tree_code in rate_by_code:
               raise ValueError(
-                  f"Duplicate tree code in rate table: {code}"
+                  f"Duplicate tree code: {tree_code}"
               )
   
-          if rate <= 0:
+          if rate_x1e9 <= 0:
               raise ValueError(
-                  f"Invalid substitution rate for {code}: {rate}"
+                  f"Invalid rate for {tree_code}: "
+                  f"{rate_x1e9}"
               )
   
-          rate_by_code[code] = rate
-          scientific_name_by_code[code] = scientific_name
+          rate_by_code[tree_code] = rate_x1e9
+          scientific_name_by_code[
+              tree_code
+          ] = scientific_name
   
   
   # ============================================================
-  # DISCOVER CLEAN TABLES
+  # DISCOVER CLEAN TSV FILES
   # ============================================================
   
   clean_files = sorted(
@@ -662,14 +673,12 @@
   
   # ============================================================
   # PREFLIGHT
-  #
-  # Nothing is written unless ALL calculable species are mapped.
   # ============================================================
   
-  unmapped_assemblies = []
-  missing_rates = []
-  excluded = []
   calculable = []
+  excluded = []
+  unmapped = []
+  missing_rates = []
   
   
   for clean_file in clean_files:
@@ -680,10 +689,9 @@
   
       if assembly not in assembly_to_tree_code:
   
-          unmapped_assemblies.append(
+          unmapped.append(
               (assembly, clean_file.name)
           )
-  
           continue
   
       tree_code = assembly_to_tree_code[assembly]
@@ -693,7 +701,6 @@
           excluded.append(
               (assembly, clean_file.name)
           )
-  
           continue
   
       if tree_code not in rate_by_code:
@@ -701,11 +708,14 @@
           missing_rates.append(
               (assembly, tree_code)
           )
-  
           continue
   
       calculable.append(
-          (clean_file, assembly, tree_code)
+          (
+              clean_file,
+              assembly,
+              tree_code
+          )
       )
   
   
@@ -713,10 +723,10 @@
   print("=" * 72)
   print("PREFLIGHT")
   print("=" * 72)
-  print("Real clean TSV files:", len(clean_files))
+  print("Clean RepeatMasker tables:", len(clean_files))
   print("Calculable:", len(calculable))
-  print("Excluded because no mu:", len(excluded))
-  print("Unmapped assemblies:", len(unmapped_assemblies))
+  print("Excluded:", len(excluded))
+  print("Unmapped:", len(unmapped))
   print("Missing rates:", len(missing_rates))
   print()
   
@@ -728,17 +738,17 @@
       for assembly, filename in excluded:
           print(
               f"  {assembly} -> Myotis tricolor "
-              f"(no species-specific mu)"
+              f"(no species-specific rate)"
           )
   
       print()
   
   
-  if unmapped_assemblies:
+  if unmapped:
   
-      print("ERROR: these assemblies are not in the mapping:")
+      print("ERROR: unmapped assemblies:")
   
-      for assembly, filename in unmapped_assemblies:
+      for assembly, filename in unmapped:
           print(" ", filename)
   
       sys.exit(1)
@@ -746,7 +756,7 @@
   
   if missing_rates:
   
-      print("ERROR: mapped tree codes without a rate:")
+      print("ERROR: tree codes without rates:")
   
       for assembly, tree_code in missing_rates:
           print(
@@ -757,15 +767,58 @@
   
   
   print("Preflight passed.")
-  print("No age files have been written yet.")
   print()
   
   
   # ============================================================
-  # FUNCTION: ADD INSERTION AGE
+  # BED COLUMN DESCRIPTION
   # ============================================================
   
-  def add_age_column(
+  BED_COLUMNS = [
+      "chrom",
+      "chromStart",
+      "chromEnd",
+      "matching_repeat",
+      "BED_score",
+      "strand",
+      "SW_score",
+      "perc_div",
+      "insertion_age_Ma",
+      "perc_del",
+      "perc_ins",
+      "repeat_class_family",
+      "repeat_position_1",
+      "repeat_position_2",
+      "repeat_position_3",
+      "ID",
+      "overlap_flag",
+  ]
+  
+  
+  columns_file = (
+      DATA_DIR
+      / "repeatmasker_age_bed_columns.txt"
+  )
+  
+  with columns_file.open(
+      "w",
+      encoding="utf-8"
+  ) as fout:
+  
+      for number, name in enumerate(
+          BED_COLUMNS,
+          start=1
+      ):
+          fout.write(
+              f"{number}\t{name}\n"
+          )
+  
+  
+  # ============================================================
+  # CREATE ONE BED FILE
+  # ============================================================
+  
+  def create_bed(
       input_file,
       output_file,
       rate_x1e9
@@ -801,11 +854,12 @@
               )
   
               # ------------------------------------------------
-              # Read + verify original clean header
+              # Verify clean TSV header
               # ------------------------------------------------
   
               try:
                   header = next(reader)
+  
               except StopIteration:
                   raise ValueError(
                       f"Empty file: {input_file.name}"
@@ -819,22 +873,13 @@
                       f"Found:\n{header}"
                   )
   
-              # ------------------------------------------------
-              # Insert age immediately after perc_div
-              # ------------------------------------------------
-  
-              div_index = header.index("perc_div")
-  
-              new_header = (
-                  header[:div_index + 1]
-                  + ["insertion_age_Ma"]
-                  + header[div_index + 1:]
-              )
-  
-              writer.writerow(new_header)
+              idx = {
+                  name: header.index(name)
+                  for name in header
+              }
   
               # ------------------------------------------------
-              # Process rows
+              # Data rows
               # ------------------------------------------------
   
               for data_row_number, row in enumerate(
@@ -842,27 +887,14 @@
                   start=1
               ):
   
-                  if len(row) != len(EXPECTED_HEADER):
+                  if len(row) != 16:
   
                       raise ValueError(
                           f"Wrong column count in "
                           f"{input_file.name}\n"
                           f"Data row: {data_row_number:,}\n"
-                          f"Expected: {len(EXPECTED_HEADER)}\n"
+                          f"Expected: 16\n"
                           f"Found: {len(row)}"
-                      )
-  
-                  try:
-                      perc_div = float(
-                          row[div_index]
-                      )
-                  except ValueError:
-  
-                      raise ValueError(
-                          f"Invalid perc_div in "
-                          f"{input_file.name}\n"
-                          f"Data row: {data_row_number:,}\n"
-                          f"Value: {row[div_index]!r}"
                       )
   
                   # ============================================
@@ -870,15 +902,23 @@
                   #
                   # T = D / (100 * mu)
                   #
-                  # D = perc_div
-                  #
-                  # mu = rate_x1e9 * 10^-9
-                  #
-                  # Convert years -> Ma:
+                  # with rate_x1e9 = mu * 10^9:
                   #
                   # age_Ma =
                   #     10 * perc_div / rate_x1e9
                   # ============================================
+  
+                  try:
+                      perc_div = float(
+                          row[idx["perc_div"]]
+                      )
+  
+                  except ValueError:
+                      raise ValueError(
+                          f"Invalid perc_div in "
+                          f"{input_file.name}, "
+                          f"row {data_row_number:,}"
+                      )
   
                   insertion_age_Ma = (
                       10.0
@@ -886,24 +926,150 @@
                       / rate_x1e9
                   )
   
-                  new_row = (
-                      row[:div_index + 1]
-                      + [f"{insertion_age_Ma:.6f}"]
-                      + row[div_index + 1:]
-                  )
+                  # ============================================
+                  # REPEATMASKER -> BED COORDINATES
+                  #
+                  # RepeatMasker:
+                  # query_begin = 1-based inclusive
+                  # query_end   = 1-based inclusive
+                  #
+                  # BED:
+                  # chromStart = 0-based inclusive
+                  # chromEnd   = 0-based exclusive
+                  #
+                  # Therefore:
+                  # start = query_begin - 1
+                  # end   = query_end
+                  # ============================================
   
-                  if len(new_row) != 17:
-                      raise ValueError(
-                          f"Internal error: generated row "
-                          f"does not have 17 columns in "
-                          f"{input_file.name}"
+                  try:
+                      query_begin = int(
+                          row[idx["query_begin"]]
                       )
   
-                  writer.writerow(new_row)
+                      query_end = int(
+                          row[idx["query_end"]]
+                      )
+  
+                  except ValueError:
+                      raise ValueError(
+                          f"Invalid coordinates in "
+                          f"{input_file.name}, "
+                          f"row {data_row_number:,}"
+                      )
+  
+                  chrom_start = query_begin - 1
+                  chrom_end = query_end
+  
+                  if chrom_start < 0:
+                      raise ValueError(
+                          f"Negative BED start in "
+                          f"{input_file.name}, "
+                          f"row {data_row_number:,}"
+                      )
+  
+                  if chrom_end <= chrom_start:
+                      raise ValueError(
+                          f"Invalid BED interval in "
+                          f"{input_file.name}, "
+                          f"row {data_row_number:,}: "
+                          f"{chrom_start}-{chrom_end}"
+                      )
+  
+                  # ============================================
+                  # STRAND
+                  # ============================================
+  
+                  rm_strand = row[
+                      idx["strand"]
+                  ]
+  
+                  if rm_strand == "+":
+                      bed_strand = "+"
+  
+                  elif rm_strand == "C":
+                      bed_strand = "-"
+  
+                  else:
+                      raise ValueError(
+                          f"Unexpected RepeatMasker strand "
+                          f"{rm_strand!r} in "
+                          f"{input_file.name}, "
+                          f"row {data_row_number:,}"
+                      )
+  
+                  # ============================================
+                  # BED6 + 11 additional columns
+                  # ============================================
+  
+                  bed_row = [
+  
+                      # BED1
+                      row[idx["query_sequence"]],
+  
+                      # BED2
+                      str(chrom_start),
+  
+                      # BED3
+                      str(chrom_end),
+  
+                      # BED4
+                      row[idx["matching_repeat"]],
+  
+                      # BED5
+                      # BED score formally ranges 0-1000.
+                      # Preserve RepeatMasker SW score separately.
+                      "0",
+  
+                      # BED6
+                      bed_strand,
+  
+                      # Custom column 7
+                      row[idx["SW_score"]],
+  
+                      # Custom column 8
+                      row[idx["perc_div"]],
+  
+                      # Custom column 9
+                      f"{insertion_age_Ma:.6f}",
+  
+                      # Custom column 10
+                      row[idx["perc_del"]],
+  
+                      # Custom column 11
+                      row[idx["perc_ins"]],
+  
+                      # Custom column 12
+                      row[idx["repeat_class_family"]],
+  
+                      # Custom column 13
+                      row[idx["repeat_position_1"]],
+  
+                      # Custom column 14
+                      row[idx["repeat_position_2"]],
+  
+                      # Custom column 15
+                      row[idx["repeat_position_3"]],
+  
+                      # Custom column 16
+                      row[idx["ID"]],
+  
+                      # Custom column 17
+                      row[idx["overlap_flag"]],
+                  ]
+  
+                  if len(bed_row) != 17:
+  
+                      raise ValueError(
+                          f"Internal BED construction error "
+                          f"in {input_file.name}"
+                      )
+  
+                  writer.writerow(bed_row)
   
                   rows_written += 1
   
-          # Only create final file after complete success
+          # Only replace the final output after successful finish
           temp_file.replace(output_file)
   
           return rows_written
@@ -917,7 +1083,7 @@
   
   
   # ============================================================
-  # PROCESS ALL CALCULABLE SPECIES
+  # PROCESS ALL SPECIES
   # ============================================================
   
   summary = []
@@ -930,12 +1096,19 @@
       clean_file,
       assembly,
       tree_code
-  ) in enumerate(calculable, start=1):
+  ) in enumerate(
+      calculable,
+      start=1
+  ):
   
-      rate_x1e9 = rate_by_code[tree_code]
+      rate_x1e9 = rate_by_code[
+          tree_code
+      ]
   
       scientific_name = (
-          scientific_name_by_code[tree_code]
+          scientific_name_by_code[
+              tree_code
+          ]
       )
   
       output_file = (
@@ -944,7 +1117,7 @@
               clean_file.name.removesuffix(
                   ".clean.tsv"
               )
-              + ".age.tsv"
+              + ".age.bed"
           )
       )
   
@@ -962,18 +1135,18 @@
       )
   
       print(
-          f"    mu x1e9: {rate_x1e9:.12g}"
+          f"    rate x1e9: "
+          f"{rate_x1e9:.12g}"
       )
   
-      # --------------------------------------------------------
-      # Skip existing final output unless requested otherwise
-      # --------------------------------------------------------
-  
-      if output_file.exists() and not OVERWRITE:
+      if (
+          output_file.exists()
+          and not OVERWRITE
+      ):
   
           print(
-              f"    SKIPPED: {output_file.name} "
-              f"already exists"
+              f"    SKIPPED: "
+              f"{output_file.name} already exists"
           )
   
           summary.append({
@@ -994,24 +1167,30 @@
   
       try:
   
-          rows_written = add_age_column(
+          rows_written = create_bed(
               clean_file,
               output_file,
               rate_x1e9
           )
   
-          elapsed = time.time() - start_file
-  
-          print(
-              f"    OK: {rows_written:,} rows"
+          elapsed = (
+              time.time()
+              - start_file
           )
   
           print(
-              f"    output: {output_file.name}"
+              f"    OK: "
+              f"{rows_written:,} rows"
           )
   
           print(
-              f"    time: {elapsed / 60:.2f} min"
+              f"    output: "
+              f"{output_file.name}"
+          )
+  
+          print(
+              f"    time: "
+              f"{elapsed / 60:.2f} min"
           )
   
           summary.append({
@@ -1049,7 +1228,7 @@
   
   
   # ============================================================
-  # RECORD EXCLUDED SPECIES IN SUMMARY
+  # RECORD EXCLUDED SPECIES
   # ============================================================
   
   for assembly, clean_filename in excluded:
@@ -1072,7 +1251,7 @@
   
   summary_file = (
       DATA_DIR
-      / "repeatmasker_insertion_age_summary.tsv"
+      / "repeatmasker_insertion_age_bed_summary.tsv"
   )
   
   
@@ -1108,14 +1287,17 @@
   # FINAL REPORT
   # ============================================================
   
-  elapsed_all = time.time() - start_all
+  elapsed_all = (
+      time.time()
+      - start_all
+  )
   
   successful = sum(
       row["status"] == "OK"
       for row in summary
   )
   
-  skipped_existing = sum(
+  skipped = sum(
       row["status"] == "SKIPPED_EXISTING"
       for row in summary
   )
@@ -1127,21 +1309,54 @@
   
   
   print("=" * 72)
-  print("INSERTION-AGE CALCULATION FINISHED")
+  print("BED CREATION FINISHED")
   print("=" * 72)
   
-  print("Clean TSV files:", len(clean_files))
-  print("Successfully calculated:", successful)
-  print("Already existing / skipped:", skipped_existing)
-  print("Excluded (no species rate):", excluded_count)
-  print("Failed:", len(failures))
+  print(
+      "Clean TSV files:",
+      len(clean_files)
+  )
+  
+  print(
+      "Successfully created:",
+      successful
+  )
+  
+  print(
+      "Existing / skipped:",
+      skipped
+  )
+  
+  print(
+      "Excluded (no species rate):",
+      excluded_count
+  )
+  
+  print(
+      "Failed:",
+      len(failures)
+  )
+  
   print(
       f"Total time: "
       f"{elapsed_all / 60:.2f} min"
   )
   
-  print("Summary:")
-  print(summary_file.resolve())
+  print()
+  print(
+      "BED column description:"
+  )
+  print(
+      columns_file.resolve()
+  )
+  
+  print()
+  print(
+      "Summary:"
+  )
+  print(
+      summary_file.resolve()
+  )
   
   
   if failures:
@@ -1150,6 +1365,7 @@
       print("FILES WITH ERRORS:")
   
       for assembly, error in failures:
+  
           print()
           print(assembly)
           print(error)
@@ -1161,6 +1377,8 @@
   print("Finished without calculation errors.")
   PY
 
+
+
 .. code-block:: bash
 
-  python add_insertion_ages.py
+  python add_insertion_ages_bed.py
