@@ -414,10 +414,6 @@
 
 4.2 Add the insertion time to each TE
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: bash
-
-  nano add_insertion_ages.py
   
 .. code-block:: bash
   
