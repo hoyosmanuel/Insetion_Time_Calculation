@@ -536,3 +536,10 @@ Now we must create a dictionary:
   )
   
   print(output_file)
+
+
+.. csv-table:: _static/Neutral substitution rates for bat species
+   :file: bat_neutral_substitution_rates_with_species_names.tsv
+   :delim: tab
+   :header-rows: 1
+   :widths: auto
