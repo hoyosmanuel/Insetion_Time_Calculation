@@ -538,7 +538,12 @@ Now we must create a dictionary:
   print(output_file)
 
 
+Final neutral substitution-rate estimates
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+The cumulative branch length from the Yinpterochiroptera–Yangochiroptera
+split to each species was divided by 66,809,683 years, the estimated age
+of that split according to Morales et al. (2026).
 
 
 .. csv-table:: Neutral substitution rates estimated for each bat species
